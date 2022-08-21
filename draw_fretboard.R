@@ -51,13 +51,13 @@ fretboard <- calc_fretboard(guitar_setup)
 # calculate notes on the fretboard
 calc_notes <- function(fretboard, guitar_setup) {
   calc_note <- function(
-    fret = 10,
+    fret = 18,
     tuning = "E") {
 
 
     if (fret >= 12)
     {
-      fret = fret - (12 * round(fret / 12, 0))
+      fret = fret - (12 * floor(fret / 12))
     }
     note_idx <- which(guitar_setup$notes == tuning) + fret
     if(note_idx > 12) note_idx <- note_idx - 12
@@ -125,6 +125,37 @@ calc_scale <- function(root, type) {
 # calc_scale("A", "major_pentatonic")
 
 
+# Notes to show -----------------------------------------------------------
+
+root = "C"
+type = "major_pentatonic"
+show_all_notes <- TRUE
+show_scale_notes <- FALSE
+show_root <- TRUE
+show_scale <- TRUE
+note_label_size <- 7
+note_point_size <- 15
+
+
+notes_show <- fretboard_notes %>%
+  mutate(
+    show_label = case_when(
+      show_scale_notes ~ fret_note %in% calc_scale(root, type),
+      show_all_notes ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    show_scale = case_when(
+      show_scale ~ fret_note %in% calc_scale(root, type),
+      TRUE ~ FALSE
+    ),
+    show_root = case_when(
+      show_root ~  fret_note %in% root,
+      TRUE ~ FALSE
+    )
+  )
+
+
+
 # Plot --------------------------------------------------------------------
 
 
@@ -176,27 +207,25 @@ fr <- ggplot(NULL) +
   theme(panel.grid.minor = element_blank())
 
 
-root = "C"
-type = "major_pentatonic"
 
-notes_show <- fretboard_notes %>%
-filter(fret_note %in% calc_scale(root, type))
 
-fr + geom_point(data = notes_show,
+fr +
+  # show label bakcground
+  geom_point(data = notes_show %>% filter(show_label & !show_scale & !show_root),
              mapping = aes(x = fret_pos, y = string_idx),
-             shape = 21, size = 8,
+             shape = 16, size = note_point_size,
+             color = "white") +
+  # show scale
+  geom_point(data = notes_show %>% filter(show_scale & !show_root),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
              fill = "white", color = "black") +
-    geom_point(data = notes_show %>% filter(fret_note == root),
-              mapping = aes(x = fret_pos, y = string_idx),
-              shape = 21, size = 8,
-              fill = "red", color = "black") +
-    geom_text(data = notes_show,
-              mapping = aes(x = fret_pos, y = string_idx, label = fret_note)) +
+  # show root
+  geom_point(data = notes_show %>% filter(show_scale & show_root),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "red", color = "black") +
+  # show note labels
+  geom_text(data = notes_show %>% filter(show_label),
+              mapping = aes(x = fret_pos, y = string_idx, label = fret_note), size = note_label_size) +
     labs(title = paste(root, str_replace(type, "_", " ")))
-
-
-
-
-
-
-
