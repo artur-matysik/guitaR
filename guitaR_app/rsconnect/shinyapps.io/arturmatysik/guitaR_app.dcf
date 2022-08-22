@@ -1,0 +1,13 @@
+name: guitaR_app
+title: guitaR_app
+username:
+account: arturmatysik
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6824727
+bundleId: 6226310
+url: https://arturmatysik.shinyapps.io/guitaR_app/
+when: 1661188007.37427
+lastSyncTime: 1661188007.3743
+asMultiple: FALSE
+asStatic: FALSE

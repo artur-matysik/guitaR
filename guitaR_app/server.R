@@ -93,63 +93,76 @@ shinyServer(function(input, output) {
       calc_scale <- function(root, type) {
         all_notes = data.frame(
           idx = 1:24,
-          notes = rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),2)
+          note = rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),2)
         )
 
-        # form diatonic scales
-        scale_pattern_major <- c(2, 2, 1, 2, 2, 2, 1)
-        scale_pattern_minor_natural <- c(2, 1, 2, 2, 1, 2, 2)
-        scale_pattern_minor_harmonic <- c(2, 1, 2, 2, 1, 3, 1)
+        # generate harmonic scale
+        # root <-  "C"
+        # type <- "major"
 
-        if(!str_detect(type, "pentatonic")) {
-          scale_pattern <- case_when(
-            type == "major" ~ scale_pattern_major,
-            type == "minor_natural" ~ scale_pattern_minor_natural,
-            type == "minor_harmonic" ~ scale_pattern_minor_harmonic
+        idx <- which(all_notes$note==root)[1] + 0:11
+
+        scale_harmonic <- all_notes[idx,] %>%
+          mutate(
+            interval_num = c(1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7),
+            interval_name = c("P1", "m2", "M2", "m3", "M3", "P4", "A4", "P5", "m6", "M6", "m7", "M7"),
+            interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
+            interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
+            interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T)
           )
-          idx <- c(which(all_notes$notes==root)[1],  which(all_notes$notes==root)[1] + cumsum(scale_pattern))[1:7]
 
-        } else {
-          idx <- c(which(all_notes$notes==root)[1],  which(all_notes$notes==root)[1] + cumsum(scale_pattern_major))[1:7]
-          if(str_detect(type, "major")) {
-            idx <- idx[c(1, 2, 3, 5, 6)]
-          } else if(str_detect(type, "minor")) {
-            idx[3] <- idx[3] - 1
-            idx[7] <- idx[7] - 1
-            idx <- idx[c(1, 3, 4, 5, 7)]
+        scale_harmonic
 
-          }
-        }
-
-        all_notes[idx,"notes"]
-
+        scale_harmonic %>% filter(
+          case_when(
+            str_detect(type, "major") ~ interval_isMajor,
+            type == "minor_harmonic" ~ interval_isMinorHarmonic,
+            str_detect(type, "minor") ~ interval_isMinor
+          )
+        ) %>%
+          arrange(interval_num) %>%
+          filter(
+            case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
+                      TRUE ~ TRUE)
+          ) %>%
+          select(note, interval_num, interval_name)
       }
 
       root = input$root
       type = input$scale_type
       show_all_notes <- input$show_all_notes
-      show_scale_notes <- input$show_notes
+      show_scale_notes <- input$show_scale_notes
       show_root <- input$show_root
+      show_3 <- input$show_3
+      show_5 <- input$show_5
       show_scale <- input$show_scale
       note_label_size <- input$note_label_size
       note_point_size <- input$note_point_size
       base_size <- input$base_size
 
 
-      notes_show <- fretboard_notes %>%
+      fretboard_notes_show <- fretboard_notes %>%
+        left_join(calc_scale(root, type), by = c("fret_note" = "note")) %>%
         mutate(
           show_label = case_when(
+            show_scale_notes  & !show_all_notes ~ !is.na(interval_num),
             show_all_notes ~ TRUE,
-            show_scale_notes ~ fret_note %in% calc_scale(root, type),
-
             TRUE ~ FALSE
           ),
           show_scale = case_when(
-            show_scale ~ fret_note %in% calc_scale(root, type),
+            show_scale ~ !is.na(interval_num),
             TRUE ~ FALSE
           ),
           show_root = case_when(
-            show_root ~  fret_note %in% root,
+            show_root ~  interval_num == 1,
+            TRUE ~ FALSE
+          ),
+          show_3 = case_when(
+            show_3 ~ interval_num == 3,
+            TRUE ~ FALSE
+          ),
+          show_5 = case_when(
+            show_5 ~ interval_num == 5,
             TRUE ~ FALSE
           )
         )
@@ -204,31 +217,42 @@ shinyServer(function(input, output) {
         labs(x = "fret", y = "string") +
         # theme
         theme_minimal(base_size = base_size) +
-        theme(panel.grid.minor = element_blank())
+        theme(panel.grid.minor = element_blank(),
+              axis.title=element_blank())
 
 
 
 
       fr <- fr +
-        # show label bakcground
-        geom_point(data = notes_show %>% filter(show_label & !show_scale & !show_root),
-                   mapping = aes(x = fret_pos, y = string_idx),
-                   shape = 16, size = note_point_size,
-                   color = "white") +
+        geom_point(data = fretboard_notes_show %>% filter(show_label & !show_scale),
+                      mapping = aes(x = fret_pos, y = string_idx),
+                      shape = 16, size = note_point_size,
+                      color = "white") +
         # show scale
-        geom_point(data = notes_show %>% filter(show_scale & !show_root),
+        geom_point(data = fretboard_notes_show %>% filter(show_scale & !show_root),
                    mapping = aes(x = fret_pos, y = string_idx),
                    shape = 21, size = note_point_size,
                    fill = "white", color = "black") +
         # show root
-        geom_point(data = notes_show %>% filter(show_scale & show_root),
+        geom_point(data = fretboard_notes_show %>% filter(show_scale & show_root),
                    mapping = aes(x = fret_pos, y = string_idx),
                    shape = 21, size = note_point_size,
-                   fill = "red", color = "black") +
+                   fill = input$color_root, color = "black") +
+        # show 3
+        geom_point(data = fretboard_notes_show %>% filter(show_scale & show_3),
+                   mapping = aes(x = fret_pos, y = string_idx),
+                   shape = 21, size = note_point_size,
+                   fill = input$color_3, color = "black") +
+        # show 5
+        geom_point(data = fretboard_notes_show %>% filter(show_scale & show_5),
+                   mapping = aes(x = fret_pos, y = string_idx),
+                   shape = 21, size = note_point_size,
+                   fill = input$color_5, color = "black") +
         # show note labels
-        geom_text(data = notes_show %>% filter(show_label),
+        geom_text(data = fretboard_notes_show %>% filter(show_label),
                   mapping = aes(x = fret_pos, y = string_idx, label = fret_note), size = note_label_size) +
         labs(title = paste(root, str_replace(type, "_", " ")))
+
 
 
 
