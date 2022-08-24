@@ -9,6 +9,20 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Background
+
+[**GuitaR**](https://arturmatysik.shinyapps.io/guitaR_app/) is a simple Shiny app to facilitate guitar soloing learning process, based on scales and intervals. 
+
+URL: https://arturmatysik.shinyapps.io/guitaR_app/
+
+In this tutorial I will walk through the design of GuitaR Shiny app with `tidyverse` metapackage. 
+
+Topics include:
+- Basic use of R functions
+- Tidy-way of data structuring with `dplyr` 
+- Creative use of `ggplot()`
+- Simple implementation in R Shiny
+
 ## Generate fretboard
 
 ### Guitar setup
@@ -32,9 +46,22 @@ guitar_setup <- list(
 
 #### Simple fretboard
 
-From the setup we know the number of frets as well as number and names of strings. Thats all we need to draw a fretboard:
+From the setup we know the number of frets as well as number and names of strings. That it all we need to draw an empty fretboard. 
 
-```{r message=FALSE}
+- Use `geom_vline()` to draw frets and nut (with significantly thicker line)
+- Use `geom_hline()` to draw strings
+- Use `scale_y_continuous()` to label strings
+  - set `breaks` to `1:length(guitar_setup$tuning)`
+  - set `labels` to `guitar_setup$tuning`
+- Use `scale_x_continuous()` to label strings 
+  - `breaks` and `labels` equal to `1:guitar_setup$frets`
+- Remove unwanted margin with `expand()`
+- Use `theme_minimal()` for minimalist design
+- Use `theme()` attributes to 
+  - remove grid `panel.grid.minor = element_blank()`
+  - remove axis labels `axis.title=element_blank()`
+
+```{r message=FALSE, fig.dim = c(10, 2)}
 library(tidyverse)
 ggplot(NULL) +
   # plot frets
@@ -46,17 +73,17 @@ ggplot(NULL) +
   # label strings
   scale_y_continuous(
     breaks = 1:length(guitar_setup$tuning),
-    labels = guitar_setup$tuning
+    labels = guitar_setup$tuning,
+    expand = c(0.07, 0.07)
   ) + 
   # label frets
   scale_x_continuous(
     breaks = 1:guitar_setup$frets,
-    labels = 1:guitar_setup$frets
+    labels = 1:guitar_setup$frets,
+    expand = c(.005, .005)
   ) + 
   theme_minimal() + 
   theme(
-    # set aspect ratio 
-    aspect.ratio=2/10,
     # remove unwanted grids
     panel.grid.minor = element_blank(),
     # remove axis labels
@@ -67,7 +94,7 @@ That looks good already! But lets make it even better.
 
 #### Fret distance
 
-As we know, real guitar frets are not evenly spread. Their distance is bigger close to the guitar neck, and smaller towards the bridge. Without going into details the following formula can help in calculating fret distance: `1 - exp(-k * n)` where `n` is the fret number and `k` is a constant of `k = 5.71584144995393e-2`. We can use this formula to generate function, that takes fret number and returns its relative position:
+As we know, real guitar frets are not evenly spread. Their distance is bigger close to the guitar neck, and smaller towards the bridge. Without going into details, the following formula can help in calculating fret distance: `1 - exp(-k * n)` where `n` is the fret number and `k` is a constant of `k = 5.71584144995393e-2`. We can use this formula to generate function, that takes fret number and returns its relative position:
 
 ```{r}
 calc_fret_distance <- function(n, s = 1, k = 5.71584144995393e-2) {
@@ -105,20 +132,30 @@ Typically, there are two types:
 - single markers (`marker = "single"`), located at frets 3, 5, 7, 9, 15, 17, 19, 21 (`fret_num = c(3, 5, 7, 9, 15, 17, 19, 21)`)
 - double marker (`marker = "double"`) at fret 12 (`fret_num = c(12)`)
 
-Their location however is not exactly where the fret is, but rather between two frets. 
+Their position however is not exactly where the fret is, but rather between two frets. 
 For example: marker at 5th fret will lie between 4th and 5th fret. 
 
-First, create and vectorize function `calc_fret_marker_position`, that will take fret number and vector of positions (`fretboard$fret_pos`)
+First, create function `calc_fret_marker_position`, that will take fret number and vector of positions (`fretboard$fret_pos`) to calculate mean position between two frets. 
 
 ```{r}
 calc_fret_marker_position <- function(n, pos) {
   mean(c(pos[n], pos[n + 1]))
 }
+```
+
+Use `Vectorize()` to enable vector input:
+
+```{r}
 calc_fret_marker_position_v <-
   Vectorize(calc_fret_marker_position, "n")
 ```
 
-Then, use this function to calculate `fretboard_markers` data frame, holding marker positions:
+Then, use vectorized function to calculate `fretboard_markers` data frame, holding marker X positions (`marker_posX`). 
+
+As for the Y position (`marker_posY`):
+
+- Single markers are place in the middle (`max(length(guitar_setup$tuning) + 1) / 2`)
+- For double markers calculate middle point as for single, then double and separate +1 up or down by adding `+ c(-1, 1)` to the middle position. Note, that by multiplying `c(-1, 1)` by some value we can control distance between the two markers!
 
 ```{r}
 fretboard_markers <- bind_rows(
@@ -142,11 +179,9 @@ fretboard_markers <- bind_rows(
   mutate(marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)) %>%
   filter(!is.na(marker)) %>%
   select(fret_num, marker, marker_posX, marker_posY)
-  
-
 ```
 
-Finally, join it with `fretboard_layout`:
+Finally, join `fretboard_markers` with `fretboard_layout` to get the final `fretboard`, that we will use for plotting.
 
 ```{r}
 fretboard <- left_join(fretboard_layout, fretboard_markers, by = "fret_num")
@@ -156,7 +191,7 @@ head(fretboard)
 
 #### Fancy fretboard
 
-We can combine all above functions into one `calc_fretboard`, that will take `guitar_setup` and return the fretboard:
+We can combine all above functions into one `calc_fretboard()`, that will take `guitar_setup` and return the `fretboard`:
 
 ```{r}
 # design fretboard
@@ -204,7 +239,7 @@ fretboard <- calc_fretboard(guitar_setup)
 
 Use `fretboard` for plotting the fretboard:
 
-```{r}
+```{r, fig.dim = c(10, 2)}
 # set drawing parameters
 note_label_size <- 4
 note_point_size <- 8
@@ -255,8 +290,7 @@ fr <- ggplot(NULL) +
   # theme
   theme_minimal() +
   theme(panel.grid.minor = element_blank(),
-        axis.title=element_blank(),
-        aspect.ratio=2/10
+        axis.title=element_blank()
         )
 
 fr
