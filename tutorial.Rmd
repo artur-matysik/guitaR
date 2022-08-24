@@ -18,6 +18,7 @@ URL: https://arturmatysik.shinyapps.io/guitaR_app/
 In this tutorial I will walk through the design of GuitaR Shiny app with `tidyverse` metapackage. 
 
 Topics include:
+
 - Basic use of R functions
 - Tidy-way of data structuring with `dplyr` 
 - Creative use of `ggplot()`
@@ -240,10 +241,6 @@ fretboard <- calc_fretboard(guitar_setup)
 Use `fretboard` for plotting the fretboard:
 
 ```{r, fig.dim = c(10, 2)}
-# set drawing parameters
-note_label_size <- 4
-note_point_size <- 8
-
 # plot empty fretboard
 fr <- ggplot(NULL) +
   # plot frets
