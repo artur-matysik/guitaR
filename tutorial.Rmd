@@ -1,0 +1,264 @@
+---
+title: "GuitaR Tutorial"
+author: "Artur Matysik"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Generate fretboard
+
+### Guitar setup
+
+Start with guitar setup. Create list `guitar_setup` and store:
+
+- `tuning`: vector of string names, e.g.: `c("E", "A", "D", "G", "B", "E")` will be the standard guitar tuning.
+- `frets`: number of frets that will be later used for fretboard display.
+
+```{r message=FALSE}
+# setup
+guitar_setup <- list(
+  tuning = c("E", "A", "D", "G", "B", "E"),
+  frets = 23
+)
+```
+
+> Although we can provide separately number of strings that guitar uses, it will be redundant, because string can't exist without tuning! If necessary, number of strings can be easily calculated (e.g. `length(guitar_setup$tuning)`).
+
+### Fretboard layout
+
+#### Simple fretboard
+
+From the setup we know the number of frets as well as number and names of strings. Thats all we need to draw a fretboard:
+
+```{r message=FALSE}
+library(tidyverse)
+ggplot(NULL) +
+  # plot frets
+  geom_vline(xintercept = 1:guitar_setup$frets, alpha = 0.3) +
+  # plot nut
+  geom_vline(xintercept = 0, alpha = 1, size = 2) +
+  # plot strings
+  geom_hline(yintercept = 1:length(guitar_setup$tuning)) + 
+  # label strings
+  scale_y_continuous(
+    breaks = 1:length(guitar_setup$tuning),
+    labels = guitar_setup$tuning
+  ) + 
+  # label frets
+  scale_x_continuous(
+    breaks = 1:guitar_setup$frets,
+    labels = 1:guitar_setup$frets
+  ) + 
+  theme_minimal() + 
+  theme(
+    # set aspect ratio 
+    aspect.ratio=2/10,
+    # remove unwanted grids
+    panel.grid.minor = element_blank(),
+    # remove axis labels
+    axis.title=element_blank())
+```
+
+That looks good already! But lets make it even better.
+
+#### Fret distance
+
+As we know, real guitar frets are not evenly spread. Their distance is bigger close to the guitar neck, and smaller towards the bridge. Without going into details the following formula can help in calculating fret distance: `1 - exp(-k * n)` where `n` is the fret number and `k` is a constant of `k = 5.71584144995393e-2`. We can use this formula to generate function, that takes fret number and returns its relative position:
+
+```{r}
+calc_fret_distance <- function(n, s = 1, k = 5.71584144995393e-2) {
+  s * (1 - exp(-k * n))
+}
+
+# position of nut
+calc_fret_distance(0)
+
+# position of 1st fret
+calc_fret_distance(1)
+
+# position of 10th fret
+calc_fret_distance(10)
+```
+
+Having this convenient way of fret position calculation, we can create simple data frame `fretboard_layout`, to hold fret number (`fret_num`) and fret position `fret_pos`):
+
+```{r message=TRUE}
+library(tidyverse)
+fretboard_layout <- data.frame(
+  fret_num = 0:guitar_setup$frets,
+  fret_pos = calc_fret_distance(0:guitar_setup$frets)
+)
+head(fretboard_layout)
+```
+
+#### Fretboard markers
+
+Another missing things are the markers. Lets add them to the `fretboard_layout` data frame.
+For standard guitar markers are located at frets 3, 5, 7, 9, 12, 15, 17, 19, 21. 
+
+Typically, there are two types:
+
+- single markers (`marker = "single"`), located at frets 3, 5, 7, 9, 15, 17, 19, 21 (`fret_num = c(3, 5, 7, 9, 15, 17, 19, 21)`)
+- double marker (`marker = "double"`) at fret 12 (`fret_num = c(12)`)
+
+Their location however is not exactly where the fret is, but rather between two frets. 
+For example: marker at 5th fret will lie between 4th and 5th fret. 
+
+First, create and vectorize function `calc_fret_marker_position`, that will take fret number and vector of positions (`fretboard$fret_pos`)
+
+```{r}
+calc_fret_marker_position <- function(n, pos) {
+  mean(c(pos[n], pos[n + 1]))
+}
+calc_fret_marker_position_v <-
+  Vectorize(calc_fret_marker_position, "n")
+```
+
+Then, use this function to calculate `fretboard_markers` data frame, holding marker positions:
+
+```{r}
+fretboard_markers <- bind_rows(
+  # fret vs marker
+  data.frame(
+    marker = "single",
+    fret_num = c(3, 5, 7, 9, 15, 17, 19, 21),
+    marker_posY = max(length(guitar_setup$tuning) + 1) / 2
+  ),
+  data.frame(
+    marker = "double",
+    fret_num = c(12),
+    # c(-1, 1) * 1: * 1 can be a distance parameter here
+    marker_posY = max(length(guitar_setup$tuning) + 1) / 2 + c(-1, 1) * 1
+  )
+) %>%
+  # join with layout
+  right_join(fretboard_layout, by = "fret_num") %>%
+  arrange(fret_num) %>%
+  # calc marker position X (fret)
+  mutate(marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)) %>%
+  filter(!is.na(marker)) %>%
+  select(fret_num, marker, marker_posX, marker_posY)
+  
+
+```
+
+Finally, join it with `fretboard_layout`:
+
+```{r}
+fretboard <- left_join(fretboard_layout, fretboard_markers, by = "fret_num")
+
+head(fretboard)
+```
+
+#### Fancy fretboard
+
+We can combine all above functions into one `calc_fretboard`, that will take `guitar_setup` and return the fretboard:
+
+```{r}
+# design fretboard
+calc_fretboard <- function(guitar_setup) {
+  # calculate layout
+  calc_fret_distance <- function(n, s = 1, k = 5.71584144995393e-2) {
+    s * (1 - exp(-k * n))
+  }
+
+  fretboard_layout <- data.frame(
+    fret_pos = calc_fret_distance(0:guitar_setup$frets),
+    fret_num = 0:guitar_setup$frets
+  ) %>% select(fret_num, fret_pos)
+
+  # calculate markers
+  calc_fret_marker_position <- function(n, pos) {
+    mean(c(pos[n], pos[n+1]))
+  }
+  calc_fret_marker_position_v <- Vectorize(calc_fret_marker_position, "n")
+
+  fretboard_markers <- bind_rows(
+    # fret vs marker
+    data.frame(marker = "single",
+               fret_num = c(3, 5, 7, 9, 15, 17, 19, 21),
+               marker_posY = max(length(guitar_setup$tuning) + 1) / 2),
+    data.frame(marker = "double",
+               fret_num = c(12),
+               # c(-1, 1) * 1: * 1 can be a distance parameter here
+               marker_posY = max(length(guitar_setup$tuning) + 1) / 2 + c(-1, 1) * 1)) %>%
+    # join with layout
+    right_join(fretboard_layout, by = "fret_num") %>%
+    arrange(fret_num) %>%
+    # calc marker position X (fret)
+    mutate(marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)) %>%
+    filter(!is.na(marker)) %>%
+    select(fret_num, marker, marker_posX, marker_posY)
+
+  left_join(fretboard_layout, fretboard_markers, by = "fret_num")
+}
+
+fretboard <- calc_fretboard(guitar_setup)
+```
+
+#### Fancy fretboard - plot
+
+Use `fretboard` for plotting the fretboard:
+
+```{r}
+# set drawing parameters
+note_label_size <- 4
+note_point_size <- 8
+
+# plot empty fretboard
+fr <- ggplot(NULL) +
+  # plot frets
+  geom_vline(data = fretboard, aes(xintercept = fret_pos), alpha = 0.3) +
+  geom_vline(xintercept = 0, alpha = 1, size = 2) +
+  # plot strings
+  geom_hline(
+    yintercept = 1:length(guitar_setup$tuning),
+    # string thickness
+    size = 1 - seq(
+      from = 0,
+      to = 0.5,
+      length.out = length(guitar_setup$tuning)
+    )
+  ) +
+  # plot single markers
+  geom_point(
+    data = fretboard %>% filter(marker == "single"),
+    aes(x = marker_posX, y = marker_posY),
+    size = 5,
+    alpha = 0.1
+  ) +
+  # plot double markers
+  geom_point(
+    data = fretboard %>% filter(marker == "double"),
+    aes(x = marker_posX, y = marker_posY),
+    size = 5,
+    alpha = 0.1
+  ) +
+  # label strings
+  scale_y_continuous(
+    breaks = 1:length(guitar_setup$tuning),
+    labels = guitar_setup$tuning,
+    expand = c(0.07, 0.07)
+  ) +
+  # label frets
+  scale_x_continuous(
+    breaks = fretboard$fret_pos,
+    labels = fretboard$fret_num,
+    expand = c(.005, .005)
+  ) +
+  # plot labels
+  # labs(x = "fret", y = "string") +
+  # theme
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        axis.title=element_blank(),
+        aspect.ratio=2/10
+        )
+
+fr
+```
+
