@@ -76,7 +76,7 @@ calc_notes <- function(fretboard, guitar_setup) {
   ) %>% mutate(
     string_tune = guitar_setup$tuning[string_idx],
     fret_note = calc_note_v(fret_num, string_tune),
-    interval = names(calc_note_v(fret_num, string_tune))
+    interval_idx = names(calc_note_v(fret_num, string_tune))
   ) %>%
     left_join(fretboard %>% select(fret_num, fret_pos), by = "fret_num") %>%
     distinct()
@@ -227,9 +227,6 @@ fr <- ggplot(NULL) +
         axis.title=element_blank(),
         aspect.ratio=2/5
         )
-
-
-
 
 # show label bakcground
 fr + geom_point(data = fretboard_notes_show %>% filter(show_label & !show_scale),

@@ -6,16 +6,16 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
 
 ## Background
 
-[**GuitaR**](https://arturmatysik.shinyapps.io/guitaR_app/) is a simple Shiny app to facilitate guitar soloing learning process, based on scales and intervals. 
+[**GuitaR**](https://arturmatysik.shinyapps.io/guitaR_app/) is a simple Shiny app to facilitate guitar soloing learning process, based on scales and intervals. GuitaR generates selected type of scale (e.g. minor pentatonic) in a given key (e.g. key of A) and displays it on the fretboard. Coloring can be used to highlight root notes and intervals. 
 
 URL: https://arturmatysik.shinyapps.io/guitaR_app/
 
-In this tutorial I will walk through the design of GuitaR Shiny app with `tidyverse` metapackage. 
+In this tutorial I will walk through the design of GuitaR Shiny app with `tidyverse` meta package. 
 
 Topics include:
 
@@ -25,6 +25,20 @@ Topics include:
 - Simple implementation in R Shiny
 
 ## Generate fretboard
+
+### Libraries
+
+The code is dependent on the following packages:
+
+- `ggplot2`
+- `dplyr`
+- `stringr`
+
+They are all part of `tidyverse` meta package: 
+
+```{r message=FALSE}
+library(tidyverse)
+```
 
 ### Guitar setup
 
@@ -37,20 +51,21 @@ Start with guitar setup. Create list `guitar_setup` and store:
 # setup
 guitar_setup <- list(
   tuning = c("E", "A", "D", "G", "B", "E"),
-  frets = 23
+  frets = 17
 )
 ```
 
-> Although we can provide separately number of strings that guitar uses, it will be redundant, because string can't exist without tuning! If necessary, number of strings can be easily calculated (e.g. `length(guitar_setup$tuning)`).
+Although we can provide separately number of strings that guitar uses, it will be redundant, because string can't exist without tuning! If necessary, number of strings can be easily calculated (e.g. `length(guitar_setup$tuning)`).
 
 ### Fretboard layout
 
 #### Simple fretboard
 
-From the setup we know the number of frets as well as number and names of strings. That it all we need to draw an empty fretboard. 
+From the setup we know the number of frets as well as number and names of strings. That it all we need to draw an empty fretboard with `ggplot()`. 
 
 - Use `geom_vline()` to draw frets and nut (with significantly thicker line)
 - Use `geom_hline()` to draw strings
+  - thickness of the strings is provided as a vector generated with `seq()` function. In this case it will create vector of `length(guitar_setup$tuning)` elements, ranging between `1.5` to `0.5` (`seq(1.5, 0.5, length.out = length(guitar_setup$tuning))`)
 - Use `scale_y_continuous()` to label strings
   - set `breaks` to `1:length(guitar_setup$tuning)`
   - set `labels` to `guitar_setup$tuning`
@@ -61,41 +76,48 @@ From the setup we know the number of frets as well as number and names of string
 - Use `theme()` attributes to 
   - remove grid `panel.grid.minor = element_blank()`
   - remove axis labels `axis.title=element_blank()`
+  
+Note, that (for now) we will skip aesthetics (`aes()`) and provide data (`xintercept`, `yintercept`) directly. 
 
 ```{r message=FALSE, fig.dim = c(10, 2)}
 library(tidyverse)
 ggplot(NULL) +
   # plot frets
-  geom_vline(xintercept = 1:guitar_setup$frets, alpha = 0.3) +
+  geom_vline(xintercept = 1:guitar_setup$frets, color = "gray60") +
   # plot nut
-  geom_vline(xintercept = 0, alpha = 1, size = 2) +
+  geom_vline(xintercept = 0, color = "gray50", size = 2) +
   # plot strings
-  geom_hline(yintercept = 1:length(guitar_setup$tuning)) + 
+  geom_hline(
+    yintercept = 1:length(guitar_setup$tuning),
+    # string thickness
+    size = seq(1.5, 0.5, length.out = length(guitar_setup$tuning))
+  ) +
   # label strings
   scale_y_continuous(
     breaks = 1:length(guitar_setup$tuning),
     labels = guitar_setup$tuning,
     expand = c(0.07, 0.07)
-  ) + 
+  ) +
   # label frets
   scale_x_continuous(
     breaks = 1:guitar_setup$frets,
     labels = 1:guitar_setup$frets,
     expand = c(.005, .005)
-  ) + 
-  theme_minimal() + 
-  theme(
-    # remove unwanted grids
+  ) +
+  theme_minimal() +
+  theme(# remove unwanted grids
     panel.grid.minor = element_blank(),
     # remove axis labels
-    axis.title=element_blank())
+    axis.title = element_blank())
 ```
 
 That looks good already! But lets make it even better.
 
 #### Fret distance
 
-As we know, real guitar frets are not evenly spread. Their distance is bigger close to the guitar neck, and smaller towards the bridge. Without going into details, the following formula can help in calculating fret distance: `1 - exp(-k * n)` where `n` is the fret number and `k` is a constant of `k = 5.71584144995393e-2`. We can use this formula to generate function, that takes fret number and returns its relative position:
+Real guitar frets are not evenly spread. Their distance is bigger close to the guitar neck, and smaller towards the bridge. Without going into details, the following formula can help in calculating fret relative position: `1 - exp(-k * n)` where `n` is the fret number and `k` is a constant of `k = 5.71584144995393e-2`. 
+
+Use the formula to generate function, that takes fret number and returns its relative position:
 
 ```{r}
 calc_fret_distance <- function(n, s = 1, k = 5.71584144995393e-2) {
@@ -112,26 +134,25 @@ calc_fret_distance(1)
 calc_fret_distance(10)
 ```
 
-Having this convenient way of fret position calculation, we can create simple data frame `fretboard_layout`, to hold fret number (`fret_num`) and fret position `fret_pos`):
+Having this convenient way of fret position calculation, we can create simple data frame `fretboard`, to hold fret number (`fret_num`) and fret position `fret_pos`):
 
 ```{r message=TRUE}
-library(tidyverse)
-fretboard_layout <- data.frame(
+fretboard <- data.frame(
   fret_num = 0:guitar_setup$frets,
   fret_pos = calc_fret_distance(0:guitar_setup$frets)
 )
-head(fretboard_layout)
+head(fretboard)
 ```
 
 #### Fretboard markers
 
 Another missing things are the markers. Lets add them to the `fretboard_layout` data frame.
-For standard guitar markers are located at frets 3, 5, 7, 9, 12, 15, 17, 19, 21. 
+For standard guitar markers are located at frets 3, 5, 7, 9, 12, 15, 17, 19, 21, 24. 
 
 Typically, there are two types:
 
 - single markers (`marker = "single"`), located at frets 3, 5, 7, 9, 15, 17, 19, 21 (`fret_num = c(3, 5, 7, 9, 15, 17, 19, 21)`)
-- double marker (`marker = "double"`) at fret 12 (`fret_num = c(12)`)
+- double marker (`marker = "double"`) at frets 12, 24 (`fret_num = c(12, 24)`)
 
 Their position however is not exactly where the fret is, but rather between two frets. 
 For example: marker at 5th fret will lie between 4th and 5th fret. 
@@ -159,36 +180,19 @@ As for the Y position (`marker_posY`):
 - For double markers calculate middle point as for single, then double and separate +1 up or down by adding `+ c(-1, 1)` to the middle position. Note, that by multiplying `c(-1, 1)` by some value we can control distance between the two markers!
 
 ```{r}
-fretboard_markers <- bind_rows(
-  # fret vs marker
-  data.frame(
-    marker = "single",
-    fret_num = c(3, 5, 7, 9, 15, 17, 19, 21),
-    marker_posY = max(length(guitar_setup$tuning) + 1) / 2
-  ),
-  data.frame(
-    marker = "double",
-    fret_num = c(12),
-    # c(-1, 1) * 1: * 1 can be a distance parameter here
-    marker_posY = max(length(guitar_setup$tuning) + 1) / 2 + c(-1, 1) * 1
+fretboard <- fretboard %>%
+  mutate(
+    marker_type = case_when(
+      fret_num %in% c(12, 24) ~ "double",
+      fret_num %in% c(3, 5, 7, 9, 12, 15, 17, 19, 21, 24) ~ "single"
+    ),
+    marker_posY = max(length(guitar_setup$tuning) + 1) / 2,
+    marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)
   )
-) %>%
-  # join with layout
-  right_join(fretboard_layout, by = "fret_num") %>%
-  arrange(fret_num) %>%
-  # calc marker position X (fret)
-  mutate(marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)) %>%
-  filter(!is.na(marker)) %>%
-  select(fret_num, marker, marker_posX, marker_posY)
-```
-
-Finally, join `fretboard_markers` with `fretboard_layout` to get the final `fretboard`, that we will use for plotting.
-
-```{r}
-fretboard <- left_join(fretboard_layout, fretboard_markers, by = "fret_num")
 
 head(fretboard)
 ```
+
 
 #### Fancy fretboard
 
@@ -201,36 +205,24 @@ calc_fretboard <- function(guitar_setup) {
   calc_fret_distance <- function(n, s = 1, k = 5.71584144995393e-2) {
     s * (1 - exp(-k * n))
   }
-
-  fretboard_layout <- data.frame(
-    fret_pos = calc_fret_distance(0:guitar_setup$frets),
-    fret_num = 0:guitar_setup$frets
-  ) %>% select(fret_num, fret_pos)
-
   # calculate markers
   calc_fret_marker_position <- function(n, pos) {
     mean(c(pos[n], pos[n+1]))
   }
   calc_fret_marker_position_v <- Vectorize(calc_fret_marker_position, "n")
-
-  fretboard_markers <- bind_rows(
-    # fret vs marker
-    data.frame(marker = "single",
-               fret_num = c(3, 5, 7, 9, 15, 17, 19, 21),
-               marker_posY = max(length(guitar_setup$tuning) + 1) / 2),
-    data.frame(marker = "double",
-               fret_num = c(12),
-               # c(-1, 1) * 1: * 1 can be a distance parameter here
-               marker_posY = max(length(guitar_setup$tuning) + 1) / 2 + c(-1, 1) * 1)) %>%
-    # join with layout
-    right_join(fretboard_layout, by = "fret_num") %>%
-    arrange(fret_num) %>%
-    # calc marker position X (fret)
-    mutate(marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)) %>%
-    filter(!is.na(marker)) %>%
-    select(fret_num, marker, marker_posX, marker_posY)
-
-  left_join(fretboard_layout, fretboard_markers, by = "fret_num")
+  
+  data.frame(
+    fret_num = 0:guitar_setup$frets,
+    fret_pos = calc_fret_distance(0:guitar_setup$frets)
+  ) %>%
+    mutate(
+      marker_type = case_when(
+        fret_num %in% c(12, 24) ~ "double",
+        fret_num %in% c(3, 5, 7, 9, 12, 15, 17, 19, 21, 24) ~ "single"
+      ),
+      marker_posY = max(length(guitar_setup$tuning) + 1) / 2,
+      marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)
+    )
 }
 
 fretboard <- calc_fretboard(guitar_setup)
@@ -244,31 +236,31 @@ Use `fretboard` for plotting the fretboard:
 # plot empty fretboard
 fr <- ggplot(NULL) +
   # plot frets
-  geom_vline(data = fretboard, aes(xintercept = fret_pos), alpha = 0.3) +
-  geom_vline(xintercept = 0, alpha = 1, size = 2) +
+  geom_vline(data = fretboard, aes(xintercept = fret_pos), color = "gray60") +
+  # plot nut
+  geom_vline(xintercept = 0, color = "gray50", size = 2) +
+  # plot single markers
+  geom_point(
+    data = fretboard %>% filter(marker_type == "single"),
+    aes(x = marker_posX, y = marker_posY),
+    size = 5, color = "gray80"
+  ) +
+  # plot double markers
+  geom_point(
+    data = fretboard %>% filter(marker_type == "double"),
+    aes(x = marker_posX, y = marker_posY + 1),
+    size = 5, color = "gray80"
+  ) +
+    geom_point(
+    data = fretboard %>% filter(marker_type == "double"),
+    aes(x = marker_posX, y = marker_posY - 1),
+    size = 5, color = "gray80"
+  ) +
   # plot strings
   geom_hline(
     yintercept = 1:length(guitar_setup$tuning),
     # string thickness
-    size = 1 - seq(
-      from = 0,
-      to = 0.5,
-      length.out = length(guitar_setup$tuning)
-    )
-  ) +
-  # plot single markers
-  geom_point(
-    data = fretboard %>% filter(marker == "single"),
-    aes(x = marker_posX, y = marker_posY),
-    size = 5,
-    alpha = 0.1
-  ) +
-  # plot double markers
-  geom_point(
-    data = fretboard %>% filter(marker == "double"),
-    aes(x = marker_posX, y = marker_posY),
-    size = 5,
-    alpha = 0.1
+    size = seq(1.5, 0.5, length.out = length(guitar_setup$tuning))
   ) +
   # label strings
   scale_y_continuous(
@@ -282,14 +274,612 @@ fr <- ggplot(NULL) +
     labels = fretboard$fret_num,
     expand = c(.005, .005)
   ) +
-  # plot labels
-  # labs(x = "fret", y = "string") +
-  # theme
   theme_minimal() +
   theme(panel.grid.minor = element_blank(),
         axis.title=element_blank()
         )
 
 fr
+```
+
+### Fretboard notes
+
+Ok, we have a fretboard with labeled frets, markers and strings, each string is in tune. 
+Now we can ask, **what are the notes on each fret for each string?**
+
+In western music, there are 12 notes in an octave: C, C#/Db, D, D#/Eb, E, F, F#/Gb, G, G#/Ab, A, A#/Bb and B. 
+
+Lets store them as a vector `notes` in this exact order (which corresponds to C chromatic scale). For simplicity, only `#` notation will be used here. 
+
+```{r}
+notes = c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+```
+
+Having in mind, that with each fret note increases by one step, lets ask what is the note "E" string at 3rd fret? Step by step answer can be:
+
+```{r}
+string_tune <- "E"
+fret_num <- 3
+
+# is note equal to string tune? 
+notes == string_tune
+
+# what is the index of note equal to string tune?
+which(notes == string_tune)
+
+# what is the note with index of note equal to string tune?
+notes[which(notes == string_tune) + fret_num]
+```
+
+Note, that above method will not work if we use e.g. string "B" at 2nd fret, because `which(notes == string_tune) + fret_num` is equal to `15`, which is more than `notes` vector length (12). Simple trick of doubling the note vector (using `rep(c(....), 2)`) will partially deal with that problem. Since each note is now doubled, select only the first one (`[1]`):
+
+```{r}
+notes <- rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"), 2)
+string_tune <- "B"
+fret_num <- 3
+notes[which(notes == string_tune) + fret_num][1]
+```
+
+Unfortunately, this will still not work for large higher frets (to be exact if `which(notes == string_tune) + fret_num > length(notes)`). But we know that note pattern is repeating every 12 steps so that can be easily solved as well:
+
+```{r}
+string_tune <- "D"
+fret_num <- 15
+
+if (fret_num >= 12) {
+  fret_num = fret_num - (12 * floor(fret_num / 12))
+}
+note_idx <- (which(notes == string_tune) + fret_num)[1]
+if (note_idx > 12) {
+  note_idx <- note_idx - 12
+}
+notes[note_idx]
+```
+
+Finally, calculations can be wrapped into single function that takes fret number (`fret_num`) and string tune (`string_tune`) and returns the corresponding note:
+
+
+```{r}
+calc_note <- function(fret_num, string_tune) {
+  notes <-
+    rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),
+        2)
+  if (fret_num >= 12) {
+    fret_num = fret_num - (12 * floor(fret_num / 12))
+  }
+  note_idx <- note_idx <- (which(notes == string_tune) + fret_num)[1]
+  if (note_idx > 12) {
+    note_idx <- note_idx - 12
+  }
+  notes[note_idx]
+}
+
+calc_note(15, "D")
+```
+
+Vectorize the function to enable vector input and see the notes of "A" string at frets 0 to 5:
+
+```{r}
+calc_note_v <- Vectorize(calc_note)
+
+calc_note_v(0:5, "A")
+```
+
+Now, lets create new data frame, containing the following variables:
+
+- fret number
+- string idx
+- string tune
+- fret note
+- fret position
+
+This structure is an example of *tidy data*, in which variables are in columns and observations in rows (more info [here](https://r4ds.had.co.nz/tidy-data.html)). 
+
+
+```{r}
+fretboard_notes <- data.frame(
+    fret_num = rep(0:guitar_setup$frets, each = length(guitar_setup$tuning)),
+    string_idx = rep(1:length(guitar_setup$tuning), guitar_setup$frets + 1)
+  ) %>% mutate(
+    string_tune = guitar_setup$tuning[string_idx],
+    fret_note = calc_note_v(fret_num, string_tune),
+    interval_idx = names(calc_note_v(fret_num, string_tune))
+  ) %>%
+    left_join(fretboard %>% select(fret_num, fret_pos), by = "fret_num") %>%
+    distinct()
+
+head(fretboard_notes, 10)
+```
+
+As before, we can wrap it into single function `calc_notes`:
+
+```{r}
+# calculate notes on the fretboard
+calc_notes <- function(fretboard, guitar_setup) {
+  calc_note <- function(fret_num, string_tune) {
+    notes <-
+      rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),
+          2)
+    if (fret_num >= 12) {
+      fret_num = fret_num - (12 * floor(fret_num / 12))
+    }
+    note_idx <-
+      note_idx <- (which(notes == string_tune) + fret_num)[1]
+    if (note_idx > 12) {
+      note_idx <- note_idx - 12
+    }
+    notes[note_idx]
+  }
+  
+  calc_note_v <- Vectorize(calc_note)
+  
+  data.frame(
+    fret_num = rep(0:guitar_setup$frets, each = length(guitar_setup$tuning)),
+    string_idx = rep(1:length(guitar_setup$tuning), guitar_setup$frets + 1)
+  ) %>% mutate(
+    string_tune = guitar_setup$tuning[string_idx],
+    fret_note = calc_note_v(fret_num, string_tune),
+    interval_idx = names(calc_note_v(fret_num, string_tune))
+  ) %>%
+    left_join(fretboard %>% select(fret_num, fret_pos), by = "fret_num") %>%
+    distinct()
+  
+}
+
+fretboard_notes <- calc_notes(fretboard, guitar_setup)
+```
+
+How easy it is now to plot notes on the fretboard:
+
+```{r, fig.dim = c(10, 2)}
+fr +
+  geom_point(
+    data = fretboard_notes,
+    mapping = aes(x = fret_pos, y = string_idx),
+    shape = 16,
+    size = 5,
+    color = "white"
+  ) +
+  geom_text(
+    data = fretboard_notes,
+    mapping = aes(x = fret_pos, y = string_idx, label = fret_note),
+    size = 3
+  )
+```
+
+### Scale
+
+#### Harmonic scale
+
+To generate the desired scale, we will start from constructing chromatic scale of a given key. Here, harmonic scale is composed of consecutive 12 notes, starting from desired root note:
+
+```{r}
+# set root
+root <- "A"
+
+# data frame of all notes (two octaves)
+all_notes = data.frame(idx = 1:24,
+                       note = rep(c(
+                         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+                       ), 2))
+
+# find indexes of 12 consecutive notes starting from the root note
+idx <- which(all_notes$note==root)[1] + 0:11
+
+# display the scele
+all_notes[idx,"note"]
+```
+#### Intervals
+
+In music theory, an interval is a difference in pitch between two sounds (more info [here](https://en.wikipedia.org/wiki/Interval_(music)). 
+
+Lets define their index (number: 1st interval, 2nd interval, etc), abbreviated name ("P1" for Perfet unison, `m2` for minor second, etc.), and type (major, minor, minor harmonic). For interval type, use logical (`TRUE`/`FALSE`) assignment (`interval_isMajor`, `interval_isMinor`, `interval_isMinorHarmonic`) - that will be helpful in constructing the scale later on:
+
+```{r}
+all_notes = data.frame(
+  idx = 1:24,
+  note = rep(
+    c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"), 2)
+  )
+
+# generate chromatic scale
+root <-  "A"
+
+idx <- which(all_notes$note == root)[1] + 0:11
+
+scale_chromatic <- all_notes[idx, ] %>%
+  mutate(
+    interval_num = c(1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7),
+    interval_name = c(
+      "P1",
+      "m2",
+      "M2",
+      "m3",
+      "M3",
+      "P4",
+      "A4",
+      "P5",
+      "m6",
+      "M6",
+      "m7",
+      "M7"
+    ),
+    interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
+    interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
+    interval_isMinorHarmonic = c(T, F, T, T, F, T, F, T, T, F, F, T)
+  )
+
+glimpse(scale_chromatic)
+```
+
+To construct diatonic scales (major, minor natural, minor harmonic) simply select respective intervals using `case_when()`. If the scale is pentatonic, use only 1st, 3rd, 4th, 5th and 7th intervals. 
+Detect type using either `str_detect()` or logical operator `==`:
+
+```{r}
+# set scale type
+type <- "minor_pentatonic"
+
+# generate A minor pentatonic scale
+scale_chromatic %>% filter(
+    case_when(
+      str_detect(type, "major") ~ interval_isMajor,
+      type == "minor_harmonic" ~ interval_isMinorHarmonic,
+      str_detect(type, "minor") ~ interval_isMinor
+    )
+  ) %>%
+    arrange(interval_num) %>%
+    filter(
+      case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
+                TRUE ~ TRUE)
+    ) %>%
+    select(note, interval_num, interval_name) %>%
+  glimpse()
+```
+
+As before, wrap the scale calculation into once function `calc_scale()`, that will take the root note and scale type as inputs:
+
+```{r}
+calc_scale <- function(root, type) {
+  all_notes = data.frame(
+    idx = 1:24,
+    note = rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),2)
+    )
+
+  idx <- which(all_notes$note==root)[1] + 0:11
+
+  scale_chromatic <- all_notes[idx,] %>%
+    mutate(
+      interval_num = c(1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7),
+      interval_name = c("P1", "m2", "M2", "m3", "M3", "P4", "A4", "P5", "m6", "M6", "m7", "M7"),
+      interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
+      interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
+      interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T)
+    )
+
+  scale_chromatic %>% filter(
+    case_when(
+      str_detect(type, "major") ~ interval_isMajor,
+      type == "minor_harmonic" ~ interval_isMinorHarmonic,
+      str_detect(type, "minor") ~ interval_isMinor
+    )
+  ) %>%
+    arrange(interval_num) %>%
+    filter(
+      case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
+                TRUE ~ TRUE)
+    ) %>%
+    select(note, interval_num, interval_name)
+}
+
+calc_scale("C", "major") %>% glimpse()
+```
+
+### Notes to show on the freatboard
+
+In the previous section we plotted all notes on the fretboard. But What if we want to show only notes of desired scale? Or maybe only selected intervals or scale root? 
+
+Lets define set of additional logical variables (`show_xxx`) and construct the data frame indicating which notes (and their labels) to display while plotting:
+
+```{r}
+root = "A"
+type = "minor_pentatonic"
+show_all_notes <- FALSE
+show_scale_notes <- TRUE
+show_root <- TRUE
+show_3 <- TRUE
+show_5 <- TRUE
+show_scale <- TRUE
+
+fretboard_notes_show <- fretboard_notes %>%
+  left_join(calc_scale(root, type), by = c("fret_note" = "note")) %>%
+  mutate(
+    show_label = case_when(
+      show_scale_notes & !show_all_notes ~ !is.na(interval_num),
+      show_all_notes ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    show_scale = case_when(
+      show_scale ~ !is.na(interval_num),
+      TRUE ~ FALSE
+    ),
+    show_root = case_when(
+      show_root ~  interval_num == 1,
+      TRUE ~ FALSE
+    ),
+    show_3 = case_when(
+      show_3 ~ interval_num == 3,
+      TRUE ~ FALSE
+    ),
+    show_5 = case_when(
+      show_5 ~ interval_num == 5,
+      TRUE ~ FALSE
+    )
+  )
+
+glimpse(fretboard_notes_show)
+```
+
+## Plot fretboard with scale notes
+
+Everything is ready to finally plot the fretboard with the scale notes (or all notes!). It is also easy to color code specific intervals or root notes. It can be done multiple ways. Colors can be either encoded in `fretboard_notes_show` data frame or in ggplot call. We will do with the former.
+
+NOTE: Thinking of Shiny UI, it is worth to extract all the adjustable parameters. It will be easier later to provide them as `input$...`. 
+
+```{r, fig.dim = c(10, 2)}
+
+# setup point and label size
+note_label_size <- 4
+note_point_size <- 8
+
+# plot fretboard with notes
+fr + geom_point(data = fretboard_notes_show %>% filter(show_label & !show_scale),
+           mapping = aes(x = fret_pos, y = string_idx),
+           shape = 16, size = note_point_size,
+           color = "white") +
+  # show scale
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & !show_root),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "white", color = "black") +
+  # show root
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & show_root),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "#FF0000", color = "black") +
+  # show 3
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & show_3),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "#FF7070", color = "black") +
+  # show 5
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & show_5),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "#FCEDED", color = "black") +
+  # show note labels
+  geom_text(data = fretboard_notes_show %>% filter(show_label),
+            mapping = aes(x = fret_pos, y = string_idx, label = fret_note), size = note_label_size) +
+  labs(title = paste(root, str_replace(type, "_", " ")))
+```
+
+## Complete code
+
+```{r}
+# guitar setup
+guitar_setup <- list(
+  tuning = c("E", "A", "D", "G", "B", "E"),
+  frets = 17
+)
+
+# scale setup
+root = "A"
+type = "minor_pentatonic"
+show_scale_notes <- TRUE
+show_scale <- TRUE
+show_root <- TRUE
+show_3 <- TRUE
+show_5 <- TRUE
+
+# visual setup
+note_label_size <- 4
+note_point_size <- 8
+show_all_notes <- FALSE
+
+# design fretboard
+calc_fretboard <- function(guitar_setup) {
+  # calculate layout
+  calc_fret_distance <- function(n, s = 1, k = 5.71584144995393e-2) {
+    s * (1 - exp(-k * n))
+  }
+  # calculate markers
+  calc_fret_marker_position <- function(n, pos) {
+    mean(c(pos[n], pos[n+1]))
+  }
+  calc_fret_marker_position_v <- Vectorize(calc_fret_marker_position, "n")
+  
+  data.frame(
+    fret_num = 0:guitar_setup$frets,
+    fret_pos = calc_fret_distance(0:guitar_setup$frets)
+  ) %>%
+    mutate(
+      marker_type = case_when(
+        fret_num %in% c(12, 24) ~ "double",
+        fret_num %in% c(3, 5, 7, 9, 12, 15, 17, 19, 21, 24) ~ "single"
+      ),
+      marker_posY = max(length(guitar_setup$tuning) + 1) / 2,
+      marker_posX = calc_fret_marker_position_v(fret_num, fret_pos)
+    )
+}
+
+# calculate notes on the fretboard
+calc_notes <- function(fretboard, guitar_setup) {
+  calc_note <- function(fret_num, string_tune) {
+    notes <-
+      rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),
+          2)
+    if (fret_num >= 12) {
+      fret_num = fret_num - (12 * floor(fret_num / 12))
+    }
+    note_idx <-
+      note_idx <- (which(notes == string_tune) + fret_num)[1]
+    if (note_idx > 12) {
+      note_idx <- note_idx - 12
+    }
+    notes[note_idx]
+  }
+  
+  calc_note_v <- Vectorize(calc_note)
+  
+  data.frame(
+    fret_num = rep(0:guitar_setup$frets, each = length(guitar_setup$tuning)),
+    string_idx = rep(1:length(guitar_setup$tuning), guitar_setup$frets + 1)
+  ) %>% mutate(
+    string_tune = guitar_setup$tuning[string_idx],
+    fret_note = calc_note_v(fret_num, string_tune),
+    interval_idx = names(calc_note_v(fret_num, string_tune))
+  ) %>%
+    left_join(fretboard %>% select(fret_num, fret_pos), by = "fret_num") %>%
+    distinct()
+  
+}
+
+# calculate scale
+calc_scale <- function(root, type) {
+  all_notes = data.frame(
+    idx = 1:24,
+    note = rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),2)
+    )
+
+  idx <- which(all_notes$note==root)[1] + 0:11
+
+  scale_chromatic <- all_notes[idx,] %>%
+    mutate(
+      interval_num = c(1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7),
+      interval_name = c("P1", "m2", "M2", "m3", "M3", "P4", "A4", "P5", "m6", "M6", "m7", "M7"),
+      interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
+      interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
+      interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T)
+    )
+
+  scale_chromatic %>% filter(
+    case_when(
+      str_detect(type, "major") ~ interval_isMajor,
+      type == "minor_harmonic" ~ interval_isMinorHarmonic,
+      str_detect(type, "minor") ~ interval_isMinor
+    )
+  ) %>%
+    arrange(interval_num) %>%
+    filter(
+      case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
+                TRUE ~ TRUE)
+    ) %>%
+    select(note, interval_num, interval_name)
+}
+
+fretboard <- calc_fretboard(guitar_setup)
+
+fretboard_notes <- calc_notes(fretboard, guitar_setup)
+
+fretboard_notes_show <- fretboard_notes %>%
+  left_join(calc_scale(root, type), by = c("fret_note" = "note")) %>%
+  mutate(
+    show_label = case_when(
+      show_scale_notes & !show_all_notes ~ !is.na(interval_num),
+      show_all_notes ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    show_scale = case_when(
+      show_scale ~ !is.na(interval_num),
+      TRUE ~ FALSE
+    ),
+    show_root = case_when(
+      show_root ~  interval_num == 1,
+      TRUE ~ FALSE
+    ),
+    show_3 = case_when(
+      show_3 ~ interval_num == 3,
+      TRUE ~ FALSE
+    ),
+    show_5 = case_when(
+      show_5 ~ interval_num == 5,
+      TRUE ~ FALSE
+    )
+  )
+
+# plot empty fretboard
+fr <- ggplot(NULL) +
+  # plot frets
+  geom_vline(data = fretboard, aes(xintercept = fret_pos), color = "gray60") +
+  # plot nut
+  geom_vline(xintercept = 0, color = "gray50", size = 2) +
+  # plot single markers
+  geom_point(
+    data = fretboard %>% filter(marker_type == "single"),
+    aes(x = marker_posX, y = marker_posY),
+    size = 5, color = "gray80"
+  ) +
+  # plot double markers
+  geom_point(
+    data = fretboard %>% filter(marker_type == "double"),
+    aes(x = marker_posX, y = marker_posY + 1),
+    size = 5, color = "gray80"
+  ) +
+    geom_point(
+    data = fretboard %>% filter(marker_type == "double"),
+    aes(x = marker_posX, y = marker_posY - 1),
+    size = 5, color = "gray80"
+  ) +
+  # plot strings
+  geom_hline(
+    yintercept = 1:length(guitar_setup$tuning),
+    # string thickness
+    size = seq(1.5, 0.5, length.out = length(guitar_setup$tuning))
+  ) +
+  # label strings
+  scale_y_continuous(
+    breaks = 1:length(guitar_setup$tuning),
+    labels = guitar_setup$tuning,
+    expand = c(0.07, 0.07)
+  ) +
+  # label frets
+  scale_x_continuous(
+    breaks = fretboard$fret_pos,
+    labels = fretboard$fret_num,
+    expand = c(.005, .005)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        axis.title=element_blank()
+        )
+
+# plot fretboard with notes
+fr <- fr + geom_point(data = fretboard_notes_show %>% filter(show_label & !show_scale),
+           mapping = aes(x = fret_pos, y = string_idx),
+           shape = 16, size = note_point_size,
+           color = "white") +
+  # show scale
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & !show_root),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "white", color = "black") +
+  # show root
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & show_root),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "#FF0000", color = "black") +
+  # show 3
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & show_3),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "#FF7070", color = "black") +
+  # show 5
+  geom_point(data = fretboard_notes_show %>% filter(show_scale & show_5),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size,
+             fill = "#FCEDED", color = "black") +
+  # show note labels
+  geom_text(data = fretboard_notes_show %>% filter(show_label),
+            mapping = aes(x = fret_pos, y = string_idx, label = fret_note), size = note_label_size) +
+  labs(title = paste(root, str_replace(type, "_", " ")))
 ```
 
