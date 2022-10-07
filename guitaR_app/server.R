@@ -90,47 +90,55 @@ shinyServer(function(input, output) {
 
 
       # Generate scale ----------------------------------------------------------
-      calc_scale <- function(root, type) {
+      calc_scale <- function(root, type, type_pentatonic = FALSE) {
         all_notes = data.frame(
           idx = 1:24,
           note = rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),2)
         )
 
-        # generate harmonic scale
-        # root <-  "C"
-        # type <- "major"
-
         idx <- which(all_notes$note==root)[1] + 0:11
 
-        scale_harmonic <- all_notes[idx,] %>%
+        scale_chromatic <- all_notes[idx,] %>%
           mutate(
             interval_num = c(1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7),
             interval_name = c("P1", "m2", "M2", "m3", "M3", "P4", "A4", "P5", "m6", "M6", "m7", "M7"),
             interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
             interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
-            interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T)
+            interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T),
+            interval_is_major_pentatonic = c(T, F, T, F, T, F, F, T, F, T, F, F),
+            interval_is_minor_pentatonic = c(T, F, F, T, F, T, F, T, F, F, T, F)
           )
 
-        scale_harmonic
-
-        scale_harmonic %>% filter(
-          case_when(
-            str_detect(type, "major") ~ interval_isMajor,
-            type == "minor_harmonic" ~ interval_isMinorHarmonic,
-            str_detect(type, "minor") ~ interval_isMinor
-          )
-        ) %>%
-          arrange(interval_num) %>%
+        scale_chromatic %>%
           filter(
-            case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
-                      TRUE ~ TRUE)
+            case_when(
+              type == "major" ~ interval_isMajor,
+              type == "minor" ~ interval_isMinor,
+              type == "minor_harmonic" ~ interval_isMinorHarmonic
+            ),
+            case_when(
+              type_pentatonic & type == "major" ~ interval_is_major_pentatonic,
+              type_pentatonic &
+                type == "minor" ~ interval_is_minor_pentatonic,
+              TRUE ~ TRUE
+            )
           ) %>%
-          select(note, interval_num, interval_name)
+          mutate(
+            is_pentatonic = case_when(
+              type == "major" ~ interval_is_major_pentatonic,
+              type == "minor" ~ interval_is_minor_pentatonic,
+            )
+          ) %>%
+          arrange(interval_num) %>%
+          select(note, interval_num, interval_name, is_pentatonic)
       }
 
       root = input$root
       type = input$scale_type
+      type_pentatonic = input$scale_type_pentatonic
+
       show_all_notes <- input$show_all_notes
+      show_non_pentatonic <- input$show_non_pentatonic
       show_scale_notes <- input$show_scale_notes
       show_root <- input$show_root
       show_3 <- input$show_3
@@ -138,11 +146,28 @@ shinyServer(function(input, output) {
       show_scale <- input$show_scale
       note_label_size <- input$note_label_size
       note_point_size <- input$note_point_size
-      base_size <- input$base_size
+      # base_size <- input$base_size
+      base_size <- 20
+
+      minor_map <-
+        c(
+          "C"  = "C",
+          "C#" = "D♭",
+          "D"  = "D",
+          "D#" = "E♭",
+          "E"  = "E",
+          "F"  = "F",
+          "F#" = "G♭",
+          "G"  = "G",
+          "G#" = "A♭",
+          "A"  = "A",
+          "A#" = "B♭",
+          "B"  = "B"
+        )
 
 
       fretboard_notes_show <- fretboard_notes %>%
-        left_join(calc_scale(root, type), by = c("fret_note" = "note")) %>%
+        left_join(calc_scale(root, type, type_pentatonic), by = c("fret_note" = "note")) %>%
         mutate(
           show_label = case_when(
             show_scale_notes  & !show_all_notes ~ !is.na(interval_num),
@@ -166,6 +191,12 @@ shinyServer(function(input, output) {
             TRUE ~ FALSE
           )
         )
+
+      if(str_detect(type, "minor")) {
+        fretboard_notes_show$fret_note <- minor_map[fretboard_notes_show$fret_note]
+      }
+
+
 
 
 
@@ -247,18 +278,28 @@ shinyServer(function(input, output) {
         geom_point(data = fretboard_notes_show %>% filter(show_scale & show_5),
                    mapping = aes(x = fret_pos, y = string_idx),
                    shape = 21, size = note_point_size,
-                   fill = input$color_5, color = "black") +
+                   fill = input$color_5, color = "black")
+
+      if(show_non_pentatonic) {
+        fr <- fr +
+          # show pentatonic
+          geom_point(data = fretboard_notes_show %>% filter(!is_pentatonic),
+                     mapping = aes(x = fret_pos, y = string_idx),
+                     shape = 21, size = note_point_size, stroke = 2,
+                     fill = NA, color = "black")
+      }
+
+      fr <- fr +
         # show note labels
         geom_text(data = fretboard_notes_show %>% filter(show_label),
                   mapping = aes(x = fret_pos, y = string_idx, label = fret_note), size = note_label_size) +
-        labs(title = paste(root, str_replace(type, "_", " ")))
+        labs(title = paste(minor_map[root], str_replace(type, "_", " "), ifelse(type_pentatonic, "pentatonic", "")))
 
-
-
-
-
-
-
+      if(type == "minor") {
+        fr <- fr + labs(title = paste(minor_map[root], str_replace(type, "_", " "), ifelse(type_pentatonic, "pentatonic", "")))
+      } else {
+        fr <- fr + labs(title = paste(root, str_replace(type, "_", " "), ifelse(type_pentatonic, "pentatonic", "")))
+      }
 
       fr
 

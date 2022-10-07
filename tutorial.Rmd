@@ -506,8 +506,10 @@ scale_chromatic <- all_notes[idx, ] %>%
     ),
     interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
     interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
-    interval_isMinorHarmonic = c(T, F, T, T, F, T, F, T, T, F, F, T)
-  )
+    interval_isMinorHarmonic = c(T, F, T, T, F, T, F, T, T, F, F, T),
+    interval_is_major_pentatonic = c(T, F, T, F, T, F, F, T, F, T, F, F),
+    interval_is_minor_pentatonic = c(T, F, F, T, F, T, F, T, F, F, T, F)
+  ) 
 
 glimpse(scale_chromatic)
 ```
@@ -517,21 +519,23 @@ Detect type using either `str_detect()` or logical operator `==`:
 
 ```{r}
 # set scale type
-type <- "minor_pentatonic"
+type <- "minor"
+type_pentatonic <- TRUE
 
 # generate A minor pentatonic scale
 scale_chromatic %>% filter(
     case_when(
-      str_detect(type, "major") ~ interval_isMajor,
-      type == "minor_harmonic" ~ interval_isMinorHarmonic,
-      str_detect(type, "minor") ~ interval_isMinor
-    )
+      type == "major" ~ interval_isMajor,
+      type == "minor" ~ interval_isMinor,
+      type == "minor_harmonic" ~ interval_isMinorHarmonic
+    ),
+    case_when(
+      type_pentatonic & type == "major" ~ interval_is_major_pentatonic,
+      type_pentatonic & type == "minor" ~ interval_is_minor_pentatonic
+    ),
+    
   ) %>%
     arrange(interval_num) %>%
-    filter(
-      case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
-                TRUE ~ TRUE)
-    ) %>%
     select(note, interval_num, interval_name) %>%
   glimpse()
 ```
@@ -539,7 +543,7 @@ scale_chromatic %>% filter(
 As before, wrap the scale calculation into once function `calc_scale()`, that will take the root note and scale type as inputs:
 
 ```{r}
-calc_scale <- function(root, type) {
+calc_scale <- function(root, type, type_pentatonic = FALSE) {
   all_notes = data.frame(
     idx = 1:24,
     note = rep(c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"),2)
@@ -553,25 +557,37 @@ calc_scale <- function(root, type) {
       interval_name = c("P1", "m2", "M2", "m3", "M3", "P4", "A4", "P5", "m6", "M6", "m7", "M7"),
       interval_isMajor = c(T, F, T, F, T, T, F, T, F, T, F, T),
       interval_isMinor = c(T, F, T, T, F, T, F, T, T, F, T, F),
-      interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T)
+      interval_isMinorHarmonic =c(T, F, T, T, F, T, F, T, T, F, F, T),
+      interval_is_major_pentatonic = c(T, F, T, F, T, F, F, T, F, T, F, F),
+      interval_is_minor_pentatonic = c(T, F, F, T, F, T, F, T, F, F, T, F)
     )
 
-  scale_chromatic %>% filter(
-    case_when(
-      str_detect(type, "major") ~ interval_isMajor,
-      type == "minor_harmonic" ~ interval_isMinorHarmonic,
-      str_detect(type, "minor") ~ interval_isMinor
-    )
-  ) %>%
-    arrange(interval_num) %>%
+  scale_chromatic %>%
     filter(
-      case_when(str_detect(type, "pentatonic") ~ interval_num %in% c(1, 3, 4, 5, 7),
-                TRUE ~ TRUE)
+      case_when(
+        type == "major" ~ interval_isMajor,
+        type == "minor" ~ interval_isMinor,
+        type == "minor_harmonic" ~ interval_isMinorHarmonic
+      ),
+      case_when(
+        type_pentatonic & type == "major" ~ interval_is_major_pentatonic,
+        type_pentatonic &
+          type == "minor" ~ interval_is_minor_pentatonic,
+        TRUE ~ TRUE
+      )
     ) %>%
-    select(note, interval_num, interval_name)
+    mutate(
+      is_pentatonic = case_when(
+        type == "major" ~ interval_is_major_pentatonic,
+        type == "minor" ~ interval_is_minor_pentatonic,
+      )
+      ) %>%
+    arrange(interval_num) %>%
+    select(note, interval_num, interval_name, is_pentatonic)
 }
 
-calc_scale("C", "major") %>% glimpse()
+calc_scale("C", "major", FALSE) %>% glimpse()
+calc_scale("A", "minor", TRUE) %>% glimpse()
 ```
 
 ### Notes to show on the freatboard
@@ -582,16 +598,34 @@ Lets define set of additional logical variables (`show_xxx`) and construct the d
 
 ```{r}
 root = "A"
-type = "minor_pentatonic"
+type = "minor"
+type_pentatonic <- TRUE
 show_all_notes <- FALSE
+show_pentatonic <- TRUE
 show_scale_notes <- TRUE
 show_root <- TRUE
 show_3 <- TRUE
 show_5 <- TRUE
 show_scale <- TRUE
 
+minor_map <-
+  c(
+    "C"  = "C",
+    "C#" = "D♭",
+    "D"  = "D",
+    "D#" = "E♭",
+    "E"  = "E",
+    "F"  = "F",
+    "F#" = "G♭",
+    "G"  = "G",
+    "G#" = "A♭",
+    "A"  = "A",
+    "A#" = "B♭",
+    "B"  = "B"
+  )
+
 fretboard_notes_show <- fretboard_notes %>%
-  left_join(calc_scale(root, type), by = c("fret_note" = "note")) %>%
+  left_join(calc_scale(root, type, type_pentatonic), by = c("fret_note" = "note")) %>%
   mutate(
     show_label = case_when(
       show_scale_notes & !show_all_notes ~ !is.na(interval_num),
@@ -615,6 +649,11 @@ fretboard_notes_show <- fretboard_notes %>%
       TRUE ~ FALSE
     )
   )
+
+if(str_detect(type, "minor")) {
+  fretboard_notes_show$fret_note <- minor_map[fretboard_notes_show$fret_note]  
+}
+
 
 glimpse(fretboard_notes_show)
 ```
@@ -646,6 +685,7 @@ fr + geom_point(data = fretboard_notes_show %>% filter(show_label & !show_scale)
              mapping = aes(x = fret_pos, y = string_idx),
              shape = 21, size = note_point_size,
              fill = "#FF0000", color = "black") +
+  
   # show 3
   geom_point(data = fretboard_notes_show %>% filter(show_scale & show_3),
              mapping = aes(x = fret_pos, y = string_idx),
@@ -656,6 +696,11 @@ fr + geom_point(data = fretboard_notes_show %>% filter(show_label & !show_scale)
              mapping = aes(x = fret_pos, y = string_idx),
              shape = 21, size = note_point_size,
              fill = "#FCEDED", color = "black") +
+  # show pentatonic
+  geom_point(data = fretboard_notes_show %>% filter(!is_pentatonic),
+             mapping = aes(x = fret_pos, y = string_idx),
+             shape = 21, size = note_point_size, stroke = 2,
+             fill = NA, color = "black") +
   # show note labels
   geom_text(data = fretboard_notes_show %>% filter(show_label),
             mapping = aes(x = fret_pos, y = string_idx, label = fret_note), size = note_label_size) +
