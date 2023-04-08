@@ -4,6 +4,3 @@
 .Ruserdata
 tutorial.html
 app
-rsconnect\*
-.gitignore
-guitaR_app\rsconnect\*

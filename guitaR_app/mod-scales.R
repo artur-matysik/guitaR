@@ -47,6 +47,7 @@ tab_scales_server <- function(id, config) {
         h4("Notes setup"),
         checkboxInput(NS(id, "show_scale_notes"), "Show notes in scale", T),
         checkboxInput(NS(id, "show_scale_key_note"), "Show key note", T),
+        checkboxInput(NS(id, "show_scale_chord_notes"), "Show chord notes", T),
       )
     })
 
@@ -135,17 +136,22 @@ tab_scales_server <- function(id, config) {
       fretboard_notes_show <- fretboard_notes %>%
         left_join(scale_notes, by = c("fret_note" = "note")) %>%
         mutate(
-          show_note_label = case_when(
-            show_note_label & show_scale_notes & !show_all_notes ~ !is.na(mmp),
-            show_all_notes ~ TRUE,
-            TRUE ~ FALSE
-          ),
+
           show_scale_notes = case_when(
             show_scale_notes ~ !is.na(mmp),
             TRUE ~ FALSE
           ),
+
+          show_note_label = case_when(
+            show_note_label & show_scale_notes ~ !is.na(mmp),
+            show_note_label & input$show_scale_chord_notes ~ note_idx %in% c(1,3,5),
+            show_note_label & show_scale_key_note ~ note_idx == 1,
+            # show_note_label & show_all_notes ~ TRUE,
+            TRUE ~ FALSE
+          ),
+
           show_scale_key_note = case_when(
-            show_scale_key_note ~  note_idx == 1,
+            show_scale_key_note | input$show_scale_chord_notes ~ note_idx == 1,
             TRUE ~ FALSE
           )
         )
@@ -184,6 +190,15 @@ tab_scales_server <- function(id, config) {
                    mapping = aes(x = fret_pos, y = string_idx),
                    shape = 21, size = note_point_size,
                    fill = "red", color = "black")
+
+      # show chord notes
+      if(input$show_scale_chord_notes) {
+        fr <- fr +
+          geom_point(data = fretboard_notes_show %>% filter(note_idx %in% c(3, 5)),
+                              mapping = aes(x = fret_pos, y = string_idx),
+                              shape = 21, size = note_point_size,
+                              fill = "yellow", color = "black")
+      }
 
       # show note labels
       if(input$label_mode == "note") {
